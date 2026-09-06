@@ -434,6 +434,33 @@ app.post('/auth/dashboard/login', async (req, res) => {
   }
 });
 
+app.get('/api/debug-login', async (req, res) => {
+  try {
+    console.log('🔍 Testing direct Supabase query...');
+    
+    const { data, error } = await supabase
+      .from('dashboard_users')
+      .select('id, email, name, role, password_hash')
+      .eq('email', 'sh_obaid@live.com')
+      .single();
+    
+    console.log('Query result:', { 
+      found: !!data, 
+      error: error?.message,
+      hasHash: !!data?.password_hash,
+      email: data?.email 
+    });
+    
+    res.json({ 
+      success: !!data, 
+      user: data ? { email: data.email, role: data.role } : null,
+      error: error?.message 
+    });
+  } catch (e) {
+    res.json({ error: e.message });
+  }
+});
+
 app.get('/auth/dashboard/me', (req, res) => {
   try {
     const token = req.cookies?.[DASH_COOKIE];
