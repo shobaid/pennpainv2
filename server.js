@@ -386,23 +386,52 @@ app.get('/api/gmb', async (req, res) => {
 app.post('/auth/dashboard/login', async (req, res) => {
   try {
     const { email, password } = req.body;
-    if (!email || !password) return res.status(400).json({ error: 'Email and password required' });
-    const { data: user, error } = await supabase
-      .from('dashboard_users').select('*').ilike('email', email.trim()).maybeSingle();
-    if (error || !user) return res.status(401).json({ error: 'Invalid email or password' });
-    const valid = await bcrypt.compare(password, user.password_hash);
-    if (!valid) return res.status(401).json({ error: 'Invalid email or password' });
-    const token = jwt.sign(
-      { email: user.email, name: user.name, role: user.role },
-      process.env.SESSION_SECRET || 'penn-pain-secret',
-      { expiresIn: '30d' }
-    );
-    res.cookie(DASH_COOKIE, token, {
-      httpOnly: true, secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax', maxAge: 30 * 24 * 60 * 60 * 1000
+    console.log(' LOGIN ATTEMPT:', { 
+      email, 
+      emailLength: email?.length,
+      hasTrailingSpace: email?.endsWith(' '),
+      passwordLength: password?.length 
     });
+
+    const { data: user, error } = await supabase
+      .from('dashboard_users')
+      .select('id, email, name, role, password_hash')
+      .eq('email', email.toLowerCase().trim())
+      .single();
+
+    console.log(' SUPABASE RESULT:', { 
+      found: !!user, 
+      error: error?.message,
+      userEmail: user?.email,
+      hasHash: !!user?.password_hash,
+      hashStart: user?.password_hash?.slice(0, 20) 
+    });
+
+    if (error || !user) {
+      console.log('❌ USER NOT FOUND');
+      return res.status(401).json({ error: 'Invalid email or password' });
+    }
+
+    const isValid = await bcrypt.compare(password, user.password_hash);
+    console.log('🔑 PASSWORD CHECK:', { isValid });
+
+    if (!isValid) {
+      console.log('❌ PASSWORD MISMATCH');
+      console.log('Attempted password length:', password.length);
+      console.log('Stored hash:', user.password_hash);
+      return res.status(401).json({ error: 'Invalid email or password' });
+    }
+
+    // Success...
+    const sessionData = { id: user.id, email: user.email, name: user.name, role: user.role };
+    const token = signSession(sessionData);
+    
+    res.cookie('pp_dashboard', token, COOKIE_OPTS);
     res.json({ ok: true, user: { email: user.email, name: user.name, role: user.role } });
-  } catch (e) { res.status(500).json({ error: e.message }); }
+  } catch (e) {
+    console.error('💥 LOGIN ERROR:', e);
+    res.status(500).json({ error: 'Login failed' });
+  }
 });
 
 app.get('/auth/dashboard/me', (req, res) => {
