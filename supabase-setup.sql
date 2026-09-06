@@ -16,7 +16,7 @@ GRANT ALL ON dashboard_users TO service_role;
 
 -- Initial users
 INSERT INTO dashboard_users (email, name, role, password_hash) VALUES
-  ('sh_obaid@live.com', 'Obaidullah', 'admin', '$2a$10$J7GzyHFBQAFjhSj89AAIk.gbD0MNxVwYCLvVomhWvat2gWukJrqKe');
+  ('obthedesigner@gmail.com', 'oB', 'admin', '$2a$10$XJMOTqYCZEmKvLReHxzLRu2qUyJ9AL9hCWrKNy9HxRozEDn/Pp8H2');
 
 -- Document Review Portal Tables
 CREATE TABLE documents (

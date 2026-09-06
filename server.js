@@ -25,7 +25,7 @@ const DASH_COOKIE = 'penn-pain-dashboard';
 const REVIEW_COOKIE = 'pp_reviewer';
 
 // Sheet columns — injected by generator
-const SHEET_COLUMNS = [{"column_letter":"D","sheet_header":"Ad Spend","key":"custom","label":"Ad Spend","type":"currency","color":"#6b7280"},{"column_letter":"E","sheet_header":"MTD: NP Appts Occurring This Month","key":"custom","label":"MTD: NP Appts Occurring This Month","type":"integer","color":"#0055ff"},{"column_letter":"F","sheet_header":"MTD: NP Future Month Appts","key":"custom","label":"MTD: NP Future Month Appts","type":"integer","color":"#00ff6e"},{"column_letter":"G","sheet_header":"MTD: NP Appts Total","key":"custom","label":"MTD: NP Appts Total","type":"integer","color":"#ffae00"}];
+const SHEET_COLUMNS = [{"column_letter":"D","sheet_header":"Ad Spend","key":"ad_spend","label":"Ad Spend","type":"currency","color":"#f87171"},{"column_letter":"E","sheet_header":"MTD: NP Appts Occurring This Month","key":"np_appointments","label":"MTD: NP Appts Occurring This Month","type":"currency","color":"#00d084"},{"column_letter":"F","sheet_header":"MTD: NP Future Month Appts","key":"custom","label":"MTD: NP Future Month Appts","type":"currency","color":"#0055ff"},{"column_letter":"G","sheet_header":"MTD: NP Appts Total","key":"custom","label":"MTD: NP Appts Total","type":"currency","color":"#fbff00"}];
 const QUALIFIED_LABEL = 'NP Appointments';
 
 // ── Supabase ───────────────────────────────────────────────────────────────
@@ -36,14 +36,14 @@ const supabase = createClient(
 
 // ── Google auth (service account) ─────────────────────────────────────────
 const gauth = new GoogleAuth({
-    credentials: {
-      client_email: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
-      private_key: (() => {
-        const envKey = process.env.GOOGLE_PRIVATE_KEY;
-        if (envKey) return envKey.replace(/\\n/g, '\n'); // <-- FIXED: escapes the backslash
-        try { return require('fs').readFileSync(require('path').join(__dirname, 'private-key.pem'), 'utf8'); } catch(e) {}
-        return '';
-      })()
+  credentials: {
+    client_email: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
+    private_key: (() => {
+      const envKey = process.env.GOOGLE_PRIVATE_KEY;
+      if (envKey) return envKey.replace(/\\n/g, '\n');
+      try { return require('fs').readFileSync(require('path').join(__dirname, 'private-key.pem'), 'utf8'); } catch(e) {}
+      return '';
+    })()
   },
   scopes: [
     'https://www.googleapis.com/auth/analytics.readonly',
@@ -78,8 +78,6 @@ function readSession(req) {
   } catch { return null; }
 }
 
-
-
 // ── GA4 proxy ──────────────────────────────────────────────────────────────
 app.post('/api/ga4', async (req, res) => {
   try {
@@ -94,201 +92,80 @@ app.post('/api/ga4', async (req, res) => {
   }
 });
 
-// ── GA4 events proxy — auto-discovers all key events ──────────────────────
-app.get('/api/ga4/events', async (req, res) => {
-  try {
-    const { start_date, end_date } = req.query;
-    const token = await getGAToken();
-
-    // Step 1: Fetch all events with counts for this period
-    const totalsRes = await axios.post(
-      `https://analyticsdata.googleapis.com/v1beta/${GA4_PROPERTY}:runReport`,
-      {
-        dateRanges: [{ startDate: start_date, endDate: end_date }],
-        dimensions: [{ name: 'eventName' }],
-        metrics: [{ name: 'eventCount' }],
-        orderBys: [{ metric: { metricName: 'eventCount' }, desc: true }],
-        limit: 50
-      },
-      { headers: { Authorization: `Bearer ${token}` } }
-    );
-
-    // Build event list — filter out GA4 system events
-    const systemEvents = new Set([
-      'session_start','first_visit','page_view','user_engagement',
-      'scroll','click','file_download','video_start','video_progress','video_complete',
-      'view_search_results','exception','purchase','add_to_cart','begin_checkout'
-    ]);
-
-    const allEvents = (totalsRes.data.rows || [])
-      .map(r => ({ name: r.dimensionValues[0].value, count: parseInt(r.metricValues[0].value) || 0 }))
-      .filter(e => e.count > 0 && !systemEvents.has(e.name));
-
-    if (allEvents.length === 0) {
-      return res.json({ groups: [], evMap: {} });
-    }
-
-    // Step 2: Fetch time series for all discovered events
-    const eventNames = allEvents.map(e => e.name);
-    const tsRes = await axios.post(
-      `https://analyticsdata.googleapis.com/v1beta/${GA4_PROPERTY}:runReport`,
-      {
-        dateRanges: [{ startDate: start_date, endDate: end_date }],
-        dimensions: [{ name: 'date' }, { name: 'eventName' }],
-        metrics: [{ name: 'eventCount' }],
-        dimensionFilter: { filter: { fieldName: 'eventName', inListFilter: { values: eventNames } } },
-        orderBys: [{ dimension: { dimensionName: 'date' } }],
-        limit: 5000
-      },
-      { headers: { Authorization: `Bearer ${token}` } }
-    );
-
-    // Build time series map
-    const tsMap = {};
-    (tsRes.data.rows || []).forEach(r => {
-      const date = r.dimensionValues[0].value;
-      const event = r.dimensionValues[1].value;
-      if (!tsMap[date]) tsMap[date] = {};
-      tsMap[date][event] = parseInt(r.metricValues[0].value) || 0;
-    });
-
-    const dates = Object.keys(tsMap).sort();
-
-    // Assign colors — cycle through palette
-    const palette = ['#3a8fd4','#a78bfa','#f59e0b','#34d399','#f87171','#60a5fa','#fb923c','#a3e635','#e879f9','#2dd4bf'];
-
-    // Build groups — each event is its own group
-    const evMap = {};
-    allEvents.forEach(e => { evMap[e.name] = e.count; });
-
-    const groups = allEvents.map((ev, i) => ({
-      key: ev.name.replace(/[^a-z0-9]/gi, '_'),
-      label: formatEventLabel(ev.name),
-      eventName: ev.name,
-      color: palette[i % palette.length],
-      total: ev.count,
-      timeseries: dates.map(date => ({ date, value: tsMap[date]?.[ev.name] || 0 }))
-    }));
-
-    res.json({ groups, evMap });
-  } catch (e) {
-    res.status(e.response?.status || 500).json({ error: e.response?.data?.error?.message || e.message });
-  }
-});
-
-function formatEventLabel(eventName) {
-  // Convert snake_case event names to readable labels
-  return eventName
-    .replace(/_/g, ' ')
-    .replace(/\w/g, l => l.toUpperCase())
-    .replace(/^Ads Conversion/, 'Ads')
-    .replace(/Unique$/, '(Unique)')
-    .replace(/Repeat$/, '(Repeat)');
-}
-
 // ── GSC proxy ──────────────────────────────────────────────────────────────
 app.post('/api/gsc', async (req, res) => {
   try {
     const token = await getGAToken();
     const response = await axios.post(
-      `https://searchconsole.googleapis.com/webmasters/v3/sites/${encodeURIComponent(GSC_SITE)}/searchAnalytics/query`,
-      req.body, { headers: { Authorization: `Bearer ${token}` } }
+      'https://searchconsole.googleapis.com/v1/searchAnalytics/query',
+      { ...req.body, siteUrl: GSC_SITE },
+      { headers: { Authorization: `Bearer ${token}` } }
     );
     res.json(response.data);
   } catch (e) {
-    res.status(e.response?.status || 500).json({ error: e.response?.data?.error?.message || e.message });
+    res.status(e.response?.status || 500).json({ error: e.message });
   }
 });
 
 // ── WhatConverts proxy ─────────────────────────────────────────────────────
 app.get('/api/whatconverts', async (req, res) => {
   try {
-    const { start_date, end_date, leads_per_page = 25, page_number = 1, quotable } = req.query;
-    const token = Buffer.from(`${process.env.WHATCONVERTS_TOKEN}:${process.env.WHATCONVERTS_SECRET}`).toString('base64');
-    const params = { profile_id: WC_PROFILE, start_date, end_date, leads_per_page, page_number };
-    if (quotable) params.quotable = quotable;
-    const response = await axios.get('https://app.whatconverts.com/api/v1/leads', {
-      headers: { Authorization: `Basic ${token}` },
-      params
+    const { start_date, end_date } = req.query;
+    const auth = Buffer.from(`${process.env.WHATCONVERTS_TOKEN}:${process.env.WHATCONVERTS_SECRET}`).toString('base64');
+    const response = await axios.get(`https://whatconverts.com/api/v1/profiles/${WC_PROFILE}/leads`, {
+      headers: { Authorization: `Basic ${auth}` },
+      params: { start_date, end_date, limit: 100 }
     });
-    const data = response.data;
-    const leads = data.leads || [];
-    const callLeads = leads.filter(l => (l.lead_type||'').toLowerCase().includes('call') || (l.lead_type||'').toLowerCase().includes('phone')).length;
-    const formLeads = leads.filter(l => (l.lead_type||'').toLowerCase().includes('form') || (l.lead_type||'').toLowerCase().includes('web')).length;
-    const textLeads = leads.filter(l => (l.lead_type||'').toLowerCase().includes('text') || (l.lead_type||'').toLowerCase().includes('sms')).length;
-    res.json({
-      total_leads: data.total_leads || 0,
-      total_pages: data.total_pages || 1,
-      leads,
-      summary: { total: data.total_leads || 0, calls: callLeads, forms: formLeads, texts: textLeads }
-    });
+    res.json(response.data);
   } catch (e) {
-    res.status(e.response?.status || 500).json({ error: e.message, total_leads: 0, leads: [], summary: { total: 0, calls: 0, forms: 0, texts: 0 } });
+    res.status(500).json({ error: e.message });
   }
 });
 
-// ── WhatConverts NP Appointments (quotable=yes) ────────────────────────────
+// ── WhatConverts NP Appointments ───────────────────────────────────────────
 app.get('/api/whatconverts/np-appointments', async (req, res) => {
   try {
     const { start_date, end_date } = req.query;
-    const token = Buffer.from(`${process.env.WHATCONVERTS_TOKEN}:${process.env.WHATCONVERTS_SECRET}`).toString('base64');
-
-    const firstRes = await axios.get('https://app.whatconverts.com/api/v1/leads', {
-      headers: { Authorization: `Basic ${token}` },
-      params: { profile_id: WC_PROFILE, start_date, end_date, quotable: 'yes', leads_per_page: 100, page_number: 1 }
-    });
-    const total = firstRes.data.total_leads || 0;
-    const totalPages = firstRes.data.total_pages || Math.ceil(total / 20);
-    let leads = firstRes.data.leads || [];
-
-    if (totalPages > 1) {
-      const pageRequests = [];
-      for (let p = 2; p <= totalPages; p++) {
-        pageRequests.push(axios.get('https://app.whatconverts.com/api/v1/leads', {
-          headers: { Authorization: `Basic ${token}` },
-          params: { profile_id: WC_PROFILE, start_date, end_date, quotable: 'yes', leads_per_page: 100, page_number: p }
-        }));
-      }
-      const pageResults = await Promise.all(pageRequests);
-      pageResults.forEach(r => { leads = leads.concat(r.data.leads || []); });
-    }
-
-    const seen = new Set();
-    const uniqueLeads = leads.filter(lead => {
-      const id = lead.lead_id || lead.id;
-      if (!id || seen.has(id)) return false;
-      seen.add(id);
-      return true;
-    });
-
-    const sourceMap = {};
-    uniqueLeads.forEach(lead => {
-      const source = lead.lead_source || lead.traffic_source || 'direct';
-      const medium = lead.lead_medium || lead.traffic_medium || 'none';
-      const key = medium === 'cpc' ? 'Google Ads' :
-                  source === 'google' && medium === 'organic' ? 'Google Organic' :
-                  source === '(direct)' || source === 'direct' ? 'Direct' :
-                  medium === 'referral' ? 'Referral' :
-                  medium === 'newsletter' || medium === 'email' ? 'Email' :
-                  source ? source.charAt(0).toUpperCase() + source.slice(1) : 'Other';
-      sourceMap[key] = (sourceMap[key] || 0) + 1;
-    });
-
-    const dateMap = {};
-    uniqueLeads.forEach(lead => {
-      if (lead.date_created) {
-        const date = lead.date_created.split('T')[0];
-        dateMap[date] = (dateMap[date] || 0) + 1;
+    const auth = Buffer.from(`${process.env.WHATCONVERTS_TOKEN}:${process.env.WHATCONVERTS_SECRET}`).toString('base64');
+    const response = await axios.get(`https://whatconverts.com/api/v1/profiles/${WC_PROFILE}/leads`, {
+      headers: { Authorization: `Basic ${auth}` },
+      params: { 
+        start_date, 
+        end_date, 
+        limit: 1000,
+        'filter[field]': 'quotable',
+        'filter[value]': 'Yes'
       }
     });
-
-    res.json({ total, leads: uniqueLeads.slice(0, 20), by_source: sourceMap, by_date: dateMap });
+    
+    const leads = response.data.leads || [];
+    const bySource = {};
+    const byType = {};
+    const byDate = {};
+    
+    leads.forEach(lead => {
+      const source = lead.traffic_source || 'Direct';
+      const type = lead.lead_type || 'Unknown';
+      const date = lead.date_created?.split('T')[0] || 'Unknown';
+      
+      bySource[source] = (bySource[source] || 0) + 1;
+      byType[type] = (byType[type] || 0) + 1;
+      byDate[date] = (byDate[date] || 0) + 1;
+    });
+    
+    res.json({
+      total: leads.length,
+      leads,
+      by_source: bySource,
+      by_type: byType,
+      by_date: byDate
+    });
   } catch (e) {
-    res.json({ error: e.message, total: 0, leads: [], by_source: {}, by_date: {} });
+    res.json({ error: e.message, total: 0, leads: [], by_source: {}, by_type: {}, by_date: {} });
   }
 });
 
-// ── Google Sheets (Ad Spend + NP Appointments) ────────────────────────────
+// ── Google Sheets ──────────────────────────────────────────────────────────
 app.get('/api/adspend', async (req, res) => {
   try {
     const { start_date, end_date } = req.query;
@@ -331,67 +208,52 @@ app.get('/api/adspend', async (req, res) => {
   }
 });
 
-// ── Google Business Profile (via Google Sheets) ────────────────────────────
+// ── Google Business Profile ────────────────────────────────────────────────
+
 app.get('/api/gmb', async (req, res) => {
   try {
-    const { start_date, end_date } = req.query;
     const authClient = await gauth.getClient();
     const sheets = google.sheets({ version: 'v4', auth: authClient });
     const response = await sheets.spreadsheets.values.get({
       spreadsheetId: SHEET_ID,
       range: 'gmb_data!A:J'
     });
+
     const rows = response.data.values || [];
     if (rows.length < 2) return res.json({ rows: [], totals: {} });
 
-    const data = rows.slice(1).map(row => ({
-      date: row[0] || '',
-      impressions: parseInt((row[1] || '0').replace(/[^0-9]/g, '')) || 0,
-      interactions: parseInt((row[2] || '0').replace(/[^0-9]/g, '')) || 0,
-      website_clicks: parseInt((row[3] || '0').replace(/[^0-9]/g, '')) || 0,
-      calls: parseInt((row[4] || '0').replace(/[^0-9]/g, '')) || 0,
-      directions: parseInt((row[5] || '0').replace(/[^0-9]/g, '')) || 0,
-      impressions_desktop_maps: parseInt((row[6] || '0').replace(/[^0-9]/g, '')) || 0,
-      impressions_desktop_search: parseInt((row[7] || '0').replace(/[^0-9]/g, '')) || 0,
-      impressions_mobile_maps: parseInt((row[8] || '0').replace(/[^0-9]/g, '')) || 0,
-      impressions_mobile_search: parseInt((row[9] || '0').replace(/[^0-9]/g, '')) || 0
-    })).filter(r => {
-      if (!r.date || r.date === 'Date') return false;
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(r.date)) return false;
-      if (r.impressions === 0 && r.interactions === 0 && r.calls === 0) return false;
-      return true;
+    const headers = rows[0];
+    const data = rows.slice(1).map(row => {
+      const entry = {};
+      headers.forEach((h, i) => {
+        const key = h.toLowerCase().replace(/[^a-z0-9]/g, '_');
+        entry[key] = row[i] || '';
+      });
+      return entry;
     });
 
-    const filtered = (start_date && end_date)
-      ? data.filter(r => r.date >= start_date && r.date <= end_date)
-      : data;
+    const totals = {
+      impressions: data.reduce((s, r) => s + (parseInt(r.impressions) || 0), 0),
+      interactions: data.reduce((s, r) => s + (parseInt(r.interactions) || 0), 0),
+      calls: data.reduce((s, r) => s + (parseInt(r.calls) || 0), 0),
+      directions: data.reduce((s, r) => s + (parseInt(r.direction_requests) || 0), 0),
+      website_clicks: data.reduce((s, r) => s + (parseInt(r.website_clicks) || 0), 0)
+    };
 
-    const totals = filtered.reduce((acc, row) => {
-      acc.impressions += row.impressions; acc.interactions += row.interactions;
-      acc.website_clicks += row.website_clicks; acc.calls += row.calls;
-      acc.directions += row.directions; acc.desktop_search += row.impressions_desktop_search;
-      acc.mobile_search += row.impressions_mobile_search;
-      acc.desktop_maps += row.impressions_desktop_maps;
-      acc.mobile_maps += row.impressions_mobile_maps;
-      return acc;
-    }, { impressions:0, interactions:0, website_clicks:0, calls:0, directions:0, desktop_search:0, mobile_search:0, desktop_maps:0, mobile_maps:0 });
-
-    res.json({ rows: filtered, totals });
+    res.json({ rows: data, totals });
   } catch (e) {
-    res.json({ error: e.message, rows: [], totals: { impressions:0, interactions:0, website_clicks:0, calls:0, directions:0, desktop_search:0, mobile_search:0, desktop_maps:0, mobile_maps:0 } });
+    res.json({ error: e.message, rows: [], totals: {} });
   }
 });
 
-// ── Dashboard Auth (email/password) ───────────────────────────────────────
+// ── Dashboard Auth ───────────────────────────────────────────────────────
 app.post('/auth/dashboard/login', async (req, res) => {
   try {
     const { email, password } = req.body;
-    console.log(' LOGIN ATTEMPT:', { 
-      email, 
-      emailLength: email?.length,
-      hasTrailingSpace: email?.endsWith(' '),
-      passwordLength: password?.length 
-    });
+    
+    if (!email || !password) {
+      return res.status(400).json({ error: 'Email and password required' });
+    }
 
     const { data: user, error } = await supabase
       .from('dashboard_users')
@@ -399,75 +261,26 @@ app.post('/auth/dashboard/login', async (req, res) => {
       .eq('email', email.toLowerCase().trim())
       .single();
 
-    console.log(' SUPABASE RESULT:', { 
-      found: !!user, 
-      error: error?.message,
-      userEmail: user?.email,
-      hasHash: !!user?.password_hash,
-      hashStart: user?.password_hash?.slice(0, 20) 
-    });
-
     if (error || !user) {
       console.log('❌ USER NOT FOUND');
       return res.status(401).json({ error: 'Invalid email or password' });
     }
 
     const isValid = await bcrypt.compare(password, user.password_hash);
-    console.log('🔑 PASSWORD CHECK:', { isValid });
-
     if (!isValid) {
       console.log('❌ PASSWORD MISMATCH');
-      console.log('Attempted password length:', password.length);
-      console.log('Stored hash:', user.password_hash);
       return res.status(401).json({ error: 'Invalid email or password' });
     }
 
-    // Success...
     const sessionData = { id: user.id, email: user.email, name: user.name, role: user.role };
     const token = signSession(sessionData);
     
-    res.cookie('pp_dashboard', token, COOKIE_OPTS);
+    res.cookie(DASH_COOKIE, token, COOKIE_OPTS);
     res.json({ ok: true, user: { email: user.email, name: user.name, role: user.role } });
   } catch (e) {
-    console.error('💥 LOGIN ERROR:', e);
+    console.error('Login error:', e);
     res.status(500).json({ error: 'Login failed' });
   }
-});
-
-app.get('/api/debug-login', async (req, res) => {
-  try {
-    console.log('🔍 Testing direct Supabase query...');
-    
-    const { data, error } = await supabase
-      .from('dashboard_users')
-      .select('id, email, name, role, password_hash')
-      .eq('email', 'sh_obaid@live.com')
-      .single();
-    
-    console.log('Query result:', { 
-      found: !!data, 
-      error: error?.message,
-      hasHash: !!data?.password_hash,
-      email: data?.email 
-    });
-    
-    res.json({ 
-      success: !!data, 
-      user: data ? { email: data.email, role: data.role } : null,
-      error: error?.message 
-    });
-  } catch (e) {
-    res.json({ error: e.message });
-  }
-});
-
-app.get('/auth/dashboard/me', (req, res) => {
-  try {
-    const token = req.cookies?.[DASH_COOKIE];
-    if (!token) return res.json({ authenticated: false });
-    const user = jwt.verify(token, process.env.SESSION_SECRET || 'penn-pain-secret');
-    res.json({ authenticated: true, user });
-  } catch { res.json({ authenticated: false }); }
 });
 
 app.post('/auth/dashboard/logout', (req, res) => {
@@ -475,7 +288,19 @@ app.post('/auth/dashboard/logout', (req, res) => {
   res.json({ ok: true });
 });
 
-// ── Review Auth (Supabase Email/Password) ──────────────────────────────
+app.get('/auth/dashboard/me', (req, res) => {
+  try {
+    const token = req.cookies?.[DASH_COOKIE];
+    if (!token) return res.json({ authenticated: false });
+    
+    const user = jwt.verify(token, process.env.SESSION_SECRET || 'penn-pain-secret');
+    res.json({ authenticated: true, user });
+  } catch {
+    res.json({ authenticated: false });
+  }
+});
+
+// ── Review Auth (Supabase Email/Password) ────────────────────────────────
 app.post('/auth/review/login', async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -484,14 +309,13 @@ app.post('/auth/review/login', async (req, res) => {
     const { data: user, error } = await supabase
       .from('dashboard_users')
       .select('id, email, name, role, password_hash')
-      .eq('email', email.toLowerCase())
+      .eq('email', email.toLowerCase().trim())
       .single();
 
     if (error || !user) {
       return res.status(401).json({ error: 'Invalid email or password' });
     }
 
-    // Check if user has permission to review (admin or reviewer)
     if (user.role !== 'admin' && user.role !== 'reviewer') {
       return res.status(403).json({ error: 'You do not have permission to review documents' });
     }
@@ -501,7 +325,6 @@ app.post('/auth/review/login', async (req, res) => {
       return res.status(401).json({ error: 'Invalid email or password' });
     }
 
-    // Set reviewer session cookie
     const sessionData = { id: user.id, email: user.email, name: user.name, role: user.role };
     const token = signSession(sessionData);
     
@@ -527,66 +350,94 @@ app.get('/auth/review/me', (req, res) => {
   }
 });
 
-// ── Documents API ──────────────────────────────────────────────────────────
+// ── Documents API ─────────────────────────────────────────────────────────
 app.get('/api/documents', async (req, res) => {
-  const session = readSession(req);
-  if (!session) return res.status(401).json({ error: 'Not authenticated' });
-  const { data, error } = await supabase.from('documents').select('*').order('created_at', { ascending: false });
-  if (error) return res.status(500).json({ error: error.message });
-  res.json(data);
+  try {
+    const { data, error } = await supabase.from('documents').select('*').order('created_at', { ascending: false });
+    if (error) throw error;
+    res.json(data || []);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 app.post('/api/documents', async (req, res) => {
-  const session = readSession(req);
-  if (!session) return res.status(401).json({ error: 'Not authenticated' });
-  const { title, google_doc_url, description } = req.body;
-  if (!title || !google_doc_url) return res.status(400).json({ error: 'Title and Google Doc URL are required' });
-  const { data, error } = await supabase.from('documents').insert([{
-    title, google_doc_url, description, created_by: session.email, status: 'pending'
-  }]).select().single();
-  if (error) return res.status(500).json({ error: error.message });
-  res.json(data);
-});
-
-app.patch('/api/documents/:id/status', async (req, res) => {
-  const session = readSession(req);
-  if (!session) return res.status(401).json({ error: 'Not authenticated' });
-  const { status } = req.body;
-  if (!['pending', 'approved', 'needs_edits'].includes(status)) return res.status(400).json({ error: 'Invalid status' });
-  const { data, error } = await supabase.from('documents').update({ status, updated_at: new Date().toISOString() }).eq('id', req.params.id).select().single();
-  if (error) return res.status(500).json({ error: error.message });
-  res.json(data);
-});
-
-app.delete('/api/documents/:id', async (req, res) => {
-  const session = readSession(req);
-  if (!session || session.role !== 'admin') return res.status(403).json({ error: 'Admin only' });
-  const { error } = await supabase.from('documents').delete().eq('id', req.params.id);
-  if (error) return res.status(500).json({ error: error.message });
-  res.json({ ok: true });
+  try {
+    const user = readSession(req);
+    if (!user || user.role !== 'admin') return res.status(403).json({ error: 'Unauthorized' });
+    
+    const { title, google_doc_url, description } = req.body;
+    const { data, error } = await supabase
+      .from('documents')
+      .insert([{ title, google_doc_url, description, created_by: user.email }])
+      .select()
+      .single();
+    
+    if (error) throw error;
+    res.json(data);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 app.get('/api/documents/:id/comments', async (req, res) => {
-  const session = readSession(req);
-  if (!session) return res.status(401).json({ error: 'Not authenticated' });
-  const { data, error } = await supabase.from('comments').select('*').eq('document_id', req.params.id).order('created_at', { ascending: true });
-  if (error) return res.status(500).json({ error: error.message });
-  res.json(data);
+  try {
+    const { data, error } = await supabase
+      .from('comments')
+      .select('*')
+      .eq('document_id', req.params.id)
+      .order('created_at', { ascending: true });
+    
+    if (error) throw error;
+    res.json(data || []);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 app.post('/api/documents/:id/comments', async (req, res) => {
-  const session = readSession(req);
-  if (!session) return res.status(401).json({ error: 'Not authenticated' });
-  const { body } = req.body;
-  if (!body?.trim()) return res.status(400).json({ error: 'Comment cannot be empty' });
-  const { data, error } = await supabase.from('comments').insert([{
-    document_id: req.params.id, author_email: session.email,
-    author_name: session.name || session.email, body: body.trim()
-  }]).select().single();
-  if (error) return res.status(500).json({ error: error.message });
-  res.json(data);
+  try {
+    const user = readSession(req);
+    if (!user) return res.status(403).json({ error: 'Unauthorized' });
+    
+    const { body } = req.body;
+    const { data, error } = await supabase
+      .from('comments')
+      .insert([{ 
+        document_id: req.params.id, 
+        author_email: user.email, 
+        author_name: user.name,
+        body 
+      }])
+      .select()
+      .single();
+    
+    if (error) throw error;
+    res.json(data);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.patch('/api/documents/:id/status', async (req, res) => {
+  try {
+    const user = readSession(req);
+    if (!user || user.role !== 'admin') return res.status(403).json({ error: 'Unauthorized' });
+    
+    const { status } = req.body;
+    const { data, error } = await supabase
+      .from('documents')
+      .update({ status, updated_at: new Date().toISOString() })
+      .eq('id', req.params.id)
+      .select()
+      .single();
+    
+    if (error) throw error;
+    res.json(data);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`\n✅ Penn Pain Dashboard running at http://localhost:${PORT}\n`));
-module.exports = app;
+app.listen(PORT, () => console.log('Penn Pain Dashboard running on port', PORT));

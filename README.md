@@ -35,9 +35,9 @@ Open: http://localhost:3000
 | B | Week Start | Week Start | date |
 | C | Week End | Week End | date |
 | D | Ad Spend | Ad Spend | currency |
-| E | MTD: NP Appts Occurring This Month | MTD: NP Appts Occurring This Month | integer |
-| F | MTD: NP Future Month Appts | MTD: NP Future Month Appts | integer |
-| G | MTD: NP Appts Total | MTD: NP Appts Total | integer |
+| E | MTD: NP Appts Occurring This Month | MTD: NP Appts Occurring This Month | currency |
+| F | MTD: NP Future Month Appts | MTD: NP Future Month Appts | currency |
+| G | MTD: NP Appts Total | MTD: NP Appts Total | currency |
 
 Newest row at top (row 2). Dashboard filters by Week End date.
 
