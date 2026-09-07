@@ -17,7 +17,7 @@ app.use(cookieParser());
 app.use(express.static(path.join(__dirname, 'public')));
 
 const GA4_PROPERTY = 'properties/486245473';
-const GSC_SITE = 'sc-domain:pennpain.com';
+const GSC_SITE = 'sc-domain: pennpain.com';
 const WC_PROFILE = '148479';
 const SHEET_ID = '1cXnqHBu9OJXA-TIemxTAm8tkKNDOMbY8hWgWlpbi3P4';
 const SHEET_TAB = 'dash data mtd';
@@ -96,22 +96,14 @@ app.post('/api/ga4', async (req, res) => {
 app.post('/api/gsc', async (req, res) => {
   try {
     const token = await getGAToken();
-    
-    // URL-encode the siteUrl to handle colons and slashes safely
-    const encodedSiteUrl = encodeURIComponent(GSC_SITE);
-    
     const response = await axios.post(
-      `https://searchconsole.googleapis.com/v1/sites/${encodedSiteUrl}/searchAnalytics/query`, // <-- FIXED URL
-      req.body, // siteUrl is no longer needed in the body
+      'https://searchconsole.googleapis.com/v1/searchAnalytics/query',
+      { ...req.body, siteUrl: GSC_SITE },
       { headers: { Authorization: `Bearer ${token}` } }
     );
     res.json(response.data);
   } catch (e) {
-    console.error('GSC API Full Error:', e.response?.data);
-    res.status(e.response?.status || 500).json({ 
-      error: e.message,
-      details: e.response?.data?.error?.message || 'No details' 
-    });
+    res.status(e.response?.status || 500).json({ error: e.response?.data?.error?.message || e.message });
   }
 });
 
