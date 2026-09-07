@@ -18,7 +18,7 @@ const DASH_COOKIE = 'penn-pain-dashboard';
 const REVIEW_COOKIE = 'pp_reviewer';
 
 // Sheet columns — injected by generator
-const SHEET_COLUMNS = [];
+const SHEET_COLUMNS = '[]';
 const QUALIFIED_LABEL = 'NP Appointments';
 
 // ── Supabase ───────────────────────────────────────────────────────────────
@@ -85,9 +85,10 @@ app.post('/api/ga4', async (req, res) => {
 app.post('/api/gsc', async (req, res) => {
   try {
     const token = await getGAToken();
+    const encodedSiteUrl = encodeURIComponent(GSC_SITE);
     const response = await axios.post(
-      'https://searchconsole.googleapis.com/v1/searchAnalytics/query',
-      { ...req.body, siteUrl: GSC_SITE },
+      `https://searchconsole.googleapis.com/webmasters/v3/sites/${encodedSiteUrl}/searchAnalytics/query`,
+      req.body,
       { headers: { Authorization: `Bearer ${token}` } }
     );
     res.json(response.data);
