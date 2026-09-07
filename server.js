@@ -103,7 +103,13 @@ app.post('/api/gsc', async (req, res) => {
     );
     res.json(response.data);
   } catch (e) {
-    res.status(e.response?.status || 500).json({ error: e.message });
+    // LOG THE FULL ERROR DETAILS HERE
+    console.error('GSC API Full Error:', e.response?.data);
+    
+    res.status(e.response?.status || 500).json({ error: e.message,
+      // Send the Google API error message back to the browser
+      details: e.response?.data?.error?.message || 'No details'
+     });
   }
 });
 
