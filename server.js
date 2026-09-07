@@ -96,20 +96,22 @@ app.post('/api/ga4', async (req, res) => {
 app.post('/api/gsc', async (req, res) => {
   try {
     const token = await getGAToken();
+    
+    // URL-encode the siteUrl to handle colons and slashes safely
+    const encodedSiteUrl = encodeURIComponent(GSC_SITE);
+    
     const response = await axios.post(
-      `https://searchconsole.googleapis.com/v1/searchAnalytics/query`,
-      { ...req.body, siteUrl: GSC_SITE },
+      `https://searchconsole.googleapis.com/v1/sites/${encodedSiteUrl}/searchAnalytics/query`, // <-- FIXED URL
+      req.body, // siteUrl is no longer needed in the body
       { headers: { Authorization: `Bearer ${token}` } }
     );
     res.json(response.data);
   } catch (e) {
-    // LOG THE FULL ERROR DETAILS HERE
     console.error('GSC API Full Error:', e.response?.data);
-    
-    res.status(e.response?.status || 500).json({ error: e.message,
-      // Send the Google API error message back to the browser
-      details: e.response?.data?.error?.message || 'No details'
-     });
+    res.status(e.response?.status || 500).json({ 
+      error: e.message,
+      details: e.response?.data?.error?.message || 'No details' 
+    });
   }
 });
 
