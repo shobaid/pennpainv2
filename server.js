@@ -85,10 +85,9 @@ app.post('/api/ga4', async (req, res) => {
 app.post('/api/gsc', async (req, res) => {
   try {
     const token = await getGAToken();
-    const encodedSiteUrl = encodeURIComponent(GSC_SITE);
     const response = await axios.post(
-      `https://searchconsole.googleapis.com/webmasters/v3/sites/${encodedSiteUrl}/searchAnalytics/query`,
-      req.body,  // siteUrl is now in the URL, not the body
+      'https://searchconsole.googleapis.com/v1/searchAnalytics/query',
+      { ...req.body, siteUrl: GSC_SITE },
       { headers: { Authorization: `Bearer ${token}` } }
     );
     res.json(response.data);
