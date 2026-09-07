@@ -97,7 +97,7 @@ app.post('/api/gsc', async (req, res) => {
   try {
     const token = await getGAToken();
     const response = await axios.post(
-      'https://searchconsole.googleapis.com/v1/searchanalytics/query',
+      `https://searchconsole.googleapis.com/v1/searchAnalytics/query`,
       { ...req.body, siteUrl: GSC_SITE },
       { headers: { Authorization: `Bearer ${token}` } }
     );
