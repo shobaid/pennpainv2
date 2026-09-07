@@ -112,48 +112,5 @@ app.get('/api/whatconverts', async (req, res) => {
   }
 });
 
-// ── WhatConverts NP Appointments ───────────────────────────────────────────
-app.get('/api/whatconverts/np-appointments', async (req, res) => {
-  try {
-    const { start_date, end_date } = req.query;
-    const auth = Buffer.from(`${process.env.WHATCONVERTS_TOKEN}:${process.env.WHATCONVERTS_SECRET}`).toString('base64');
-    const response = await axios.get(`https://whatconverts.com/api/v1/profiles/${WC_PROFILE}/leads`, {
-      headers: { Authorization: `Basic ${auth}` },
-      params: { 
-        start_date, 
-        end_date, 
-        limit: 1000,
-        'filter[field]': 'quotable',
-        'filter[value]': 'Yes'
-      }
-    });
-    
-    const leads = response.data.leads || [];
-    const bySource = {};
-    const byType = {};
-    const byDate = {};
-    
-    leads.forEach(lead => {
-      const source = lead.traffic_source || 'Direct';
-      const type = lead.lead_type || 'Unknown';
-      const date = lead.date_created?.split('T')[0] || 'Unknown';
-      
-      bySource[source] = (bySource[source] || 0) + 1;
-      byType[type] = (byType[type] || 0) + 1;
-      byDate[date] = (byDate[date] || 0) + 1;
-    });
-    
-    res.json({
-      total: leads.length,
-      leads,
-      by_source: bySource,
-      by_type: byType,
-      by_date: byDate
-    });
-  } catch (e) {
-    res.json({ error: e.message, total: 0, leads: [], by_source: {}, by_type: {}, by_date: {} });
-  }
-});
-
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log('Penn Pain Dashboard running on port', PORT));
