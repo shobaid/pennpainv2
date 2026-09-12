@@ -1,5 +1,5 @@
 {
-  "name": "penn-pain-dashboard",
+  "name": "pennpain-dashboard",
   "version": "1.0.0",
   "main": "server.js",
   "scripts": {
