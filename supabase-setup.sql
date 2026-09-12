@@ -1,4 +1,4 @@
--- PennPain Dashboard — Supabase Setup
+-- Penn Pain Dashboard — Supabase Setup
 -- Run this in the Supabase SQL Editor
 
 -- Dashboard Users (email/password login)

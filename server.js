@@ -23,7 +23,7 @@ const GSC_SITE = 'sc-domain:pennpain.com';
 const WC_PROFILE = '148479';
 const SHEET_ID = '1cXnqHBu9OJXA-TIemxTAm8tkKNDOMbY8hWgWlpbi3P4';
 const SHEET_TAB = 'dash data mtd';
-const DASH_COOKIE = 'pennpain-dashboard';
+const DASH_COOKIE = 'penn-pain-dashboard';
 const REVIEW_COOKIE = 'pp_reviewer';
 
 // Sheet columns — injected by generator
@@ -90,14 +90,14 @@ const COOKIE_OPTS = {
 };
 
 function signSession(data) {
-  return jwt.sign(data, process.env.SESSION_SECRET || 'pennpain-secret', { expiresIn: '7d' });
+  return jwt.sign(data, process.env.SESSION_SECRET || 'penn-pain-secret', { expiresIn: '7d' });
 }
 
 function readSession(req) {
   try {
     const token = req.cookies?.[REVIEW_COOKIE];
     if (!token) return null;
-    return jwt.verify(token, process.env.SESSION_SECRET || 'pennpain-secret');
+    return jwt.verify(token, process.env.SESSION_SECRET || 'penn-pain-secret');
   } catch { return null; }
 }
 
@@ -523,7 +523,7 @@ app.post('/auth/dashboard/login', async (req, res) => {
     if (!valid) return res.status(401).json({ error: 'Invalid email or password' });
     const token = jwt.sign(
       { email: user.email, name: user.name, role: user.role },
-      process.env.SESSION_SECRET || 'pennpain-secret',
+      process.env.SESSION_SECRET || 'penn-pain-secret',
       { expiresIn: '30d' }
     );
     res.cookie(DASH_COOKIE, token, {
@@ -538,7 +538,7 @@ app.get('/auth/dashboard/me', (req, res) => {
   try {
     const token = req.cookies?.[DASH_COOKIE];
     if (!token) return res.json({ authenticated: false });
-    const user = jwt.verify(token, process.env.SESSION_SECRET || 'pennpain-secret');
+    const user = jwt.verify(token, process.env.SESSION_SECRET || 'penn-pain-secret');
     res.json({ authenticated: true, user });
   } catch { res.json({ authenticated: false }); }
 });
@@ -732,5 +732,5 @@ p{color:#9ca3af;font-size:13px;margin:8px 0}
 }
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`\n✅ PennPain Dashboard running at http://localhost:${PORT}\n`));
+app.listen(PORT, () => console.log(`\n✅ Penn Pain Dashboard running at http://localhost:${PORT}\n`));
 module.exports = app;
